@@ -1,27 +1,6 @@
 module Keithley
 
-using Match
-
-using ArgParse
-
-function parse_commandline()
-	s = ArgParseSettings()
-
-	@add_arg_table! s begin
-		"sleep_interupt_time"
-			help = "The time interval in milliseconds that the program " *
-					"sleeps for between taking samples. It might be more " *
-					"performant and accurate to set this value high but " *
-					"it also means that you can't cancel a measurement " *
-					"in less than `sleep_interupt_time` milliseconds"
-	end
-	parsed_args = parse_args(s) # the result is a Dict{String,Any}
-	# println("Parsed args:")
-	# for (key,val) in parsed_args
-	# 	println("  $key  =>  $(repr(val))")
-	# end
-	return parsed_args
-end
+include("args.jl")
 
 import CImGui as ig, ModernGL, GLFW
 import CImGui.CSyntax: @c, @cstatic
@@ -35,28 +14,7 @@ using NativeFileDialog, DelimitedFiles
 include("BetterSleep.jl")
 using .BetterSleep
 import .BetterSleep: now
-using Dates, TimesDates
-
-function savetofile(times, currs, volts, timestamp_mode, filepath)
-	open(filepath, "w") do io
-		isempty(times) && return
-		time = copy(times)
-		if timestamp_mode === :datetime
-			timedatenow, nanonow = TimeDate(Dates.now()), BetterSleep.now()
-			synthetic_first_time = timedatenow - Nanosecond((nanonow - time[1]).ns)
-			time = [synthetic_first_time + Nanosecond((tt - time[1]).ns) for tt in time]
-			timeunit = "[DateTime]"
-		elseif timestamp_mode === :seconds
-			time = (time .- [time[1]]) .|> x->x.ns/1e9
-			timeunit = "[Seconds]"
-		else
-			time = time .|> x->x.ns
-			timeunit = "[Nanoseconds]"
-		end
-		writedlm(io, ["TimeStamp "*timeunit "Voltage [V]" "Current [A]"], ',')
-		writedlm(io, [time volts currs], ',')
-	end
-end
+include("save.jl")
 
 global sleep_interupt_interval::Nano = millis(100)
 
@@ -71,18 +29,17 @@ const keithley_types = [
 ]
 global selected_keithley_type::Cint = 0
 
-
 # Can be :datetime, :seconds, or :nanoseconds
 global timestamp_mode::Symbol = :seconds
-
 
 # Initialize Plot Axis Flags
 global xflags = ImPlot.ImPlotAxisFlags_None | ImPlot.ImPlotAxisFlags_AutoFit
 global yflags = ImPlot.ImPlotAxisFlags_None | ImPlot.ImPlotAxisFlags_AutoFit
 
 global WINSCALE::Float32 = 1.0
-global sidebarwidth = 100WINSCALE
+global sidebarwidth = 200WINSCALE
 
+include("elements.jl")
 
 function (@main)(ARGS)
 	global sleep_interupt_interval
@@ -115,7 +72,9 @@ function (@main)(ARGS)
 
 	ig.render(ctx; window_size=(100,100), window_title="Keithley 2470", on_exit=() -> ImPlot.DestroyContext(p_ctx)) do
 		global WINSCALE
+		global sidebarwidth
 		WINSCALE = ig.GetWindowDpiScale()
+		sidebarwidth = 100WINSCALE
 
 		@cstatic first_frame = true begin
 			if first_frame
@@ -134,66 +93,21 @@ function (@main)(ARGS)
 
 		menubar()
 
-		
+		if ig.BeginTabBar("IV and RealTime", ig.ImGuiTabBarFlags_NoCloseWithMiddleMouseButton)
+			if ig.BeginTabItem("I-V Sweep")
+				ivtab()
+			end
+
+			if ig.BeginTabItem("Realtime Monitor")
+				rttab()
+			end
+		end
+		ig.SameLine()
+		logs()
 
 		ig.End()
 	end
 
-end
-
-
-
-function menubar()
-	if ig.BeginMenuBar()
-		if ig.BeginMenu("Device Selection")
-			@cstatic instrs = String[] selected_keithley::Cint = 0 begin
-				if ig.Button("Refresh Devices")
-					global RM
-					RM = ResourceManager()
-					instrs = find_resources(RM)
-				end
-				global selected_keithley_type
-				@c ig.Combo("Keithley", &selected_keithley, instrs)
-				@c ig.Combo("Type", &selected_keithley_type, keithley_types)
-				global RM
-				global KeithleyIO
-				if ig.Button("Connect")
-					connect!(RM, KeithleyIO, instrs[selected_keithley+1])
-				end
-				if KeithleyIO.connected
-					ig.SameLine()
-					ig.Text("Success!")
-				else
-					if !KeithleyIO.connected
-						ig.SameLine()
-						ig.Text("Failed to connect Keithley")
-					end
-				end
-			end
-			ig.EndMenu()
-		end
-
-		if ig.BeginMenu("Timestamp Export Mode")
-			global timestamp_mode
-			selected::Int32 = @match timestamp_mode begin
-				:datetime => 1
-				:seconds => 2
-				:nanoseconds => 3
-				_ => -1
-			end
-
-			@c ig.RadioButton("DateTime Timestamps", &selected, 1)
-			@c ig.RadioButton("Seconds since start of capture", &selected, 2)
-			@c ig.RadioButton("Nanoseconds since start of capture", &selected, 3)
-
-			global timestamp_mode
-			timestamp_mode = [:datetime, :seconds, :nanoseconds][selected]
-			ig.EndMenu()
-		end
-
-
-		ig.EndMenuBar()
-	end
 end
 
 
