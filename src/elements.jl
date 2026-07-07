@@ -357,7 +357,7 @@ function event_table(list, master)
 	tableflags = ig.ImGuiTableFlags_Borders |
 		ig.ImGuiTableFlags_RowBg |
 		ig.ImGuiTableFlags_SizingFixedFit
-	if ig.BeginTable(name, 3, tableflags, (sidebarwidth, -1f0))
+	if ig.BeginTable("Event List", 3, tableflags, (sidebarwidth, -1f0))
 		ig.TableSetupColumn("msg", ig.ImGuiTableColumnFlags_WidthStretch)
 		ig.TableSetupColumn("time", ig.ImGuiTableColumnFlags_WidthStretch)
 		ig.TableSetupColumn("delete", ig.ImGuiTableColumnFlags_WidthFixed, 30f0)
