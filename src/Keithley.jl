@@ -118,6 +118,7 @@ function (@main)(ARGS)
 			if ig.BeginTabItem("Realtime Monitor")
 				rttab()
 			end
+			ig.EndTabBar()
 		end
 		
 		ig.SameLine()
