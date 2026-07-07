@@ -160,7 +160,7 @@ function menubar()
 				if ig.Button("Connect")
 					connect!(RM, KeithleyIO, instrs[selected_keithley+1])
 				end
-				if Keithley.connected
+				if KeithleyIO.connected
 					ig.SameLine()
 					ig.Text("Success!")
 				else
