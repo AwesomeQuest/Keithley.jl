@@ -65,10 +65,10 @@ using Instruments
 global RM::UInt32 = ResourceManager()
 global KeithleyIO::GenericInstrument = GenericInstrument()
 
-const keithley_types = (
+const keithley_types = [
 	"2400",
 	"2470",
-)
+]
 global selected_keithley_type::Cint = 0
 
 
