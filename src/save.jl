@@ -1,4 +1,5 @@
 using Dates, TimesDates
+using NativeFileDialog, DelimitedFiles
 
 function savetofile(times, currs, volts, timestamp_mode, filepath)
 	open(filepath, "w") do io

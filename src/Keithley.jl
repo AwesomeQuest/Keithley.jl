@@ -9,11 +9,10 @@ import ImPlot
 global plotlock = ReentrantLock()
 global gpiblock = ReentrantLock()
 
-using NativeFileDialog, DelimitedFiles
-
 include("BetterSleep.jl")
 using .BetterSleep
 import .BetterSleep: now
+
 include("save.jl")
 
 global sleep_interupt_interval::Nano = millis(100)
@@ -23,14 +22,32 @@ using Instruments
 global RM::UInt32 = ResourceManager()
 global KeithleyIO::GenericInstrument = GenericInstrument()
 
+
+# Global System State
 const keithley_types = [
 	"2400",
 	"2470",
 ]
 global selected_keithley_type::Cint = 0
 
+global iv_is_sweeping::Ref{Bool}	= Ref(false)
+global iv_cancel_sweep::Ref{Bool}	= Ref(false)
+global rt_is_monitoring::Ref{Bool}	= Ref(false)
+global rt_cancel_monitor::Ref{Bool}	= Ref(false)
+
+global event_list::Vector{Tuple{String, String, String}} = []
+
 # Can be :datetime, :seconds, or :nanoseconds
 global timestamp_mode::Symbol = :seconds
+
+# Global data for storage
+global iv_times::Vector{Nano}	 = []
+global iv_currs::Vector{Float64} = []
+global iv_volts::Vector{Float64} = []
+
+global iv_times::Vector{Nano}	 = []
+global iv_currs::Vector{Float64} = []
+global iv_volts::Vector{Float64} = []
 
 # Initialize Plot Axis Flags
 global xflags = ImPlot.ImPlotAxisFlags_None | ImPlot.ImPlotAxisFlags_AutoFit
@@ -102,7 +119,9 @@ function (@main)(ARGS)
 				rttab()
 			end
 		end
+		
 		ig.SameLine()
+
 		logs()
 
 		ig.End()

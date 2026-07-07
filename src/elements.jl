@@ -70,23 +70,84 @@ end
 
 function ivinputs()
 	ig.BeginGroup()
+	global iv_times
+	global iv_currs
+	global iv_volts
+	cleardatabutton(iv_times, iv_currs, iv_volts)
+	
+	ig.PushStyleVar(ig.lib.ImGuiStyleVar_CellPadding, (3,3))
 	global WINSCALE
-	global can_save
-	if ig.Button("Clear Data", (250WINSCALE, 30WINSCALE))
-		ig.OpenPopup("clear data popup")
+	if ig.BeginTable("iv_maxmin_table", 2, 0, (250WINSCALE,50WINSCALE))
+		ig.TableSetupColumn("Maximum [A]")
+		ig.TableSetupColumn("Minimum [A]")
+		ig.TableHeadersRow()
+		ig.TableNextRow()
+		ig.TableSetColumnIndex(0)
+		ig.Text("$(isempty(iv_currs) ? "NAN" : round(maximum(iv_currs), sigdigits=5))")
+		ig.TableSetColumnIndex(1)
+		ig.Text("$(isempty(iv_currs) ? "NAN" : round(minimum(iv_currs), sigdigits=5))")
+		ig.EndTable()
 	end
-	if ig.BeginPopup("clear data popup")
-		ig.SeparatorText("Are you sure you want to erase the data?")
-		ig.SeparatorText("")
-		if ig.Button("I'm sure I want to permanently erase data.")
-			empty!(iv_times)
-			empty!(iv_currs)
-			empty!(iv_volts)
-			ig.CloseCurrentPopup()
-		end
-		ig.EndPopup()
-	end
+	ig.PopStyleVar()
+
+	global iv_times
+	global iv_currs
+	global iv_volts
+	savedatabutton(iv_times, iv_currs, iv_volts)
+
+	sweepinputvals()
+
 	ig.EndGroup()
+end
+
+function sweepinputvals()
+	@cstatic min_volts=Cdouble(-1) max_volts=Cdouble(1) begin # Nested scopes so
+	@cstatic step_voltage=Cdouble(0.1) delay=Cdouble(0) begin # it's more readable
+	@cstatic maxcurrent=Cdouble(0.1) dual=true begin
+		global WINSCALE
+		ig.PushItemWidth(90WINSCALE)
+		@c ig.InputDouble("Minimum Voltage [V]", &min_volts)
+		@c ig.InputDouble("Maximum Voltage [V]", &max_volts)
+		@c ig.InputDouble("Step Voltage [V]", &step_voltage)
+		if step_voltage < 0 step_voltage = 0 end
+		@c ig.InputDouble("Delay [s]", &delay)
+		if delay < 0 delay = 0 end
+
+		@c ig.Checkbox("Sweep back and forth", &dual)
+		@c ig.InputDouble("Max Current [A]", &maxcurrent)
+		ig.PopItemWidth()
+
+		global iv_is_sweeping
+		global iv_cancel_sweep
+		global rt_is_monitoring
+		global WINSCALE
+		if iv_is_sweeping[] && ig.Button("Start Sweep", (250WINSCALE, 30WINSCALE)) && !rt_is_monitoring[]
+			ig.OpenPopup("start_sweep_popup")
+		end
+		if !rt_is_monitoring[]
+			if ig.BeginItemTooltip()
+				ig.TextColored((255,0,0,255), "You cannot start a sweep while monitoring")
+				ig.EndTooltip()
+			end
+		end
+		if ig.BeginPopup("start_sweep_popup")
+			ig.SeparatorText("Are you sure you want to start a sweep?")
+			ig.SeparatorText("Starting a sweep will erase the previous sweep from memory.")
+			if ig.Button("I'm sure I want to permanently erase data and start a new sweep.")
+				iv_cancel_sweep[] = false
+				errormonitor(
+					Threads.@spawn dummy_sweep(
+						iv_min_volts, iv_max_volts,
+						iv_step_voltage, iv_delay,
+						dual, maxcurrent)
+				)
+				ig.CloseCurrentPopup()
+			end
+			ig.EndPopup()
+		end
+	end
+	end
+	end
 end
 
 function rttab()
@@ -105,7 +166,82 @@ end
 
 function rtinputs()
 	ig.BeginGroup()
+
+	global rt_times
+	global rt_currs
+	global rt_volts
+	cleardatabutton(rt_times, rt_currs, rt_volts)
+	
+	ig.PushStyleVar(ig.lib.ImGuiStyleVar_CellPadding, (3,3))
+	global WINSCALE
+	if ig.BeginTable("iv_maxmin_table", 3, 0, (250WINSCALE,50WINSCALE))
+		ig.TableSetupColumn("Maximum [A]")
+		ig.TableSetupColumn("Minimum [A]")
+		ig.TableSetupColumn("Average [A]")
+		ig.TableHeadersRow()
+		ig.TableNextRow()
+		ig.TableSetColumnIndex(0)
+		ig.Text("$(isempty(rt_currs) ? "NAN" : round(maximum(rt_currs), sigdigits=5))")
+		ig.TableSetColumnIndex(1)
+		ig.Text("$(isempty(rt_currs) ? "NAN" : round(minimum(rt_currs), sigdigits=5))")
+		ig.TableSetColumnIndex(2)
+		ig.Text("$(isempty(rt_currs) ? "NAN" : round(sum(rt_currs)/length(rt_currs), sigdigits=5))")
+		ig.EndTable()
+	end
+	ig.PopStyleVar()
+
+	global rt_times
+	global rt_currs
+	global rt_volts
+	savedatabutton(rt_times, rt_currs, rt_volts)
+
+	monitorinputvals()
+
 	ig.EndGroup()
+end
+
+function monitorinputvals()
+	@cstatic set_volts=Cdouble(1) samplerate=Cdouble(0.001) maxcurrent=Cdouble(0.1) begin
+		ig.PushItemWidth(90WINSCALE)
+		@c ig.InputDouble("Set Voltage [V]", &set_volts)
+		@c ig.InputDouble("Sample rate [s]", &samplerate)
+		if samplerate < 0 samplerate = 0 end
+		global rt_sample_period
+		rt_sample_period = seconds(samplerate)
+
+		@c ig.InputDouble("Max Current [A]", &maxcurrent)
+		ig.PopItemWidth()
+
+		global rt_is_monitoring
+		global rt_cancel_monitor
+		global iv_is_sweeping
+		global WINSCALE
+		if !rt_is_monitoring[]
+			global rt_times
+			if !isempty(rt_times) && ig.Button("Resume", (250WINSCALE, 40WINSCALE))
+				@goto start_sweep
+			elseif ig.Button("Start", (250WINSCALE, 40WINSCALE))
+				@goto start_sweep
+			end
+			@goto dont_sweep
+			@label start_sweep
+			if !iv_is_sweeping[]
+				rt_cancel_monitor[] = false
+				errormonitor(Threads.@spawn dummy_monitor(set_volts, maxcurrent))
+			end
+			@label dont_sweep
+		else
+			if ig.Button("Stop", (250WINSCALE, 40WINSCALE))
+				rt_cancel_monitor[] = true
+			end
+		end
+		if iv_is_sweeping[]
+			if ig.BeginItemTooltip()
+				ig.TextColored((255,0,0,255), "You cannot start monitoring during a sweep")
+				ig.EndTooltip()
+			end
+		end
+	end
 end
 
 function flagschecks()
@@ -142,5 +278,111 @@ function simpleimplot(title, xaxis, yaxis, plot_size, xs, ys)
 			end
 		end
 		ImPlot.EndPlot()
+	end
+end
+
+function cleardatabutton(arrs...)
+	global WINSCALE
+	global iv_is_sweeping
+	global rt_is_monitoring
+	if ig.Button("Clear Data", (250WINSCALE, 30WINSCALE)) && !(iv_is_sweeping[] || rt_is_monitoring[])
+		ig.OpenPopup("clear data popup")
+	end
+	if iv_is_sweeping[] || rt_is_monitoring[]
+		if ig.BeginItemTooltip()
+			ig.TextColored((255,0,0,255), "You cannot clear data during a sweep or while monitoring")
+			ig.EndTooltip()
+		end
+	end
+	if ig.BeginPopup("clear data popup")
+		ig.SeparatorText("Are you sure you want to erase the data?")
+		ig.SeparatorText("")
+		if ig.Button("I'm sure I want to permanently erase data.")
+			for arr in arrs
+				empty!(arr)
+			end
+			ig.CloseCurrentPopup()
+		end
+		ig.EndPopup()
+	end
+end
+
+function savedatabutton(arrs...)
+	global timestamp_mode
+	global iv_is_sweeping
+	global rt_is_monitoring
+	if ig.Button("Save Data##iv", (250WINSCALE, 30WINSCALE)) && !(iv_is_sweeping[] || rt_is_monitoring[])
+		filepath = save_file(;filterlist="csv")
+		!isempty(filepath) && savetofile(arrs..., timestamp_mode, filepath)
+	end
+	if iv_is_sweeping[] || rt_is_monitoring[]
+		if ig.BeginItemTooltip()
+			ig.TextColored((255,0,0,255), "You cannot save data during a sweep or while monitoring")
+			ig.EndTooltip()
+		end
+	end
+end
+
+function logs()
+	ig.BeginGroup()
+	if ig.Button("Get Events")
+		errormonitor(Threads.@spawn getevents())
+	end
+
+	global event_list
+	lst = event_list |> enumerate |> collect
+	@cstatic showinfo = true showwarn = true showerror = true begin
+		@c ig.Checkbox("Info", &showinfo)
+		ig.SameLine()
+		@c ig.Checkbox("Warn", &showwarn)
+		ig.SameLine()
+		@c ig.Checkbox("Error", &showerror)
+		filter!(lst) do ((i, (msg, type, time)))
+			@match type begin
+				"1" => showinfo
+				"2" => showwarn
+				"4" => showerror
+			end
+		end
+	end
+
+	event_table(lst, event_list)
+
+	ig.EndGroup()
+end
+
+function event_table(list, master)
+	global sidebarwidth
+	global WINSCALE
+	tableflags = ig.ImGuiTableFlags_Borders |
+		ig.ImGuiTableFlags_RowBg |
+		ig.ImGuiTableFlags_SizingFixedFit
+	if ig.BeginTable(name, 3, tableflags, (sidebarwidth, -1f0))
+		ig.TableSetupColumn("msg", ig.ImGuiTableColumnFlags_WidthStretch)
+		ig.TableSetupColumn("time", ig.ImGuiTableColumnFlags_WidthStretch)
+		ig.TableSetupColumn("delete", ig.ImGuiTableColumnFlags_WidthFixed, 30f0)
+		for (i,(msg, _, t)) in list
+			ig.TableNextRow()
+			ig.TableSetColumnIndex(0)
+			colw = ig.GetColumnWidth(0)
+			ig.PushTextWrapPos(ig.GetCursorPosX() + colw)
+			ig.Text(msg)
+			ig.PopTextWrapPos()
+			
+			ig.TableSetColumnIndex(1)
+			colw = ig.GetColumnWidth(0)
+			ig.PushTextWrapPos(ig.GetCursorPosX() + colw)
+			ig.Text(t)
+			ig.PopTextWrapPos()
+
+			ig.TableSetColumnIndex(2)
+			global fontawesome
+			ig.PushFont(fontawesome, 12)
+			if ig.Button("##listbtn$i")
+				popat!(master, i)
+			end
+			ig.PopFont()
+		end
+		ig.EndTable()
 	end
 end
