@@ -63,7 +63,7 @@ global sleep_interupt_interval::Nano = millis(100)
 using Instruments
 
 global RM::UInt32 = ResourceManager()
-global Keithley::GenericInstrument = GenericInstrument()
+global KeithleyIO::GenericInstrument = GenericInstrument()
 
 const keithley_types = (
 	"2400",
@@ -156,15 +156,15 @@ function menubar()
 				@c ig.Combo("Keithley", &selected_keithley, instrs)
 				@c ig.Combo("Type", &selected_keithley_type, keithley_types)
 				global RM
-				global Keithley
+				global KeithleyIO
 				if ig.Button("Connect")
-					connect!(RM, Keithley, instrs[selected_keithley+1])
+					connect!(RM, KeithleyIO, instrs[selected_keithley+1])
 				end
 				if Keithley.connected
 					ig.SameLine()
 					ig.Text("Success!")
 				else
-					if !Keithley.connected
+					if !KeithleyIO.connected
 						ig.SameLine()
 						ig.Text("Failed to connect Keithley")
 					end
