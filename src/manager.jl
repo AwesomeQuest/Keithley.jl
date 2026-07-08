@@ -1,7 +1,7 @@
 
 function initialize()
-	global KeithleyIO
-	global initialized
+	# global KeithleyIO
+	# global initialized
 end
 
 function monitor()
