@@ -30,8 +30,11 @@ const keithley_types = [
 ]
 global selected_keithley_type::Cint = 0
 
+global initialized::Bool = false
+
 global iv_is_sweeping::Ref{Bool}	= Ref(false)
 global iv_cancel_sweep::Ref{Bool}	= Ref(false)
+
 global rt_is_monitoring::Ref{Bool}	= Ref(false)
 global rt_cancel_monitor::Ref{Bool}	= Ref(false)
 
@@ -110,6 +113,8 @@ function (@main)(ARGS)
 
 		menubar()
 
+		ig.BeginGroup()
+
 		if ig.BeginTabBar("IV and RealTime", ig.ImGuiTabBarFlags_NoCloseWithMiddleMouseButton)
 			if ig.BeginTabItem("I-V Sweep")
 				ivtab()
@@ -121,14 +126,16 @@ function (@main)(ARGS)
 			ig.EndTabBar()
 		end
 		
+		ig.EndGroup()
+		
 		ig.SameLine()
 
 		logs()
 
 		ig.End()
 	end
-
 end
 
+include("manager.jl")
 
 end # module Keithley
