@@ -48,9 +48,9 @@ global iv_times::Vector{Nano}	 = []
 global iv_currs::Vector{Float64} = []
 global iv_volts::Vector{Float64} = []
 
-global iv_times::Vector{Nano}	 = []
-global iv_currs::Vector{Float64} = []
-global iv_volts::Vector{Float64} = []
+global rt_times::Vector{Nano}	 = []
+global rt_currs::Vector{Float64} = []
+global rt_volts::Vector{Float64} = []
 
 # Initialize Plot Axis Flags
 global xflags = ImPlot.ImPlotAxisFlags_None | ImPlot.ImPlotAxisFlags_AutoFit
@@ -94,7 +94,7 @@ function (@main)(ARGS)
 		global WINSCALE
 		global sidebarwidth
 		WINSCALE = ig.GetWindowDpiScale()
-		sidebarwidth = 100WINSCALE
+		sidebarwidth = 200WINSCALE
 
 		@cstatic first_frame = true begin
 			if first_frame
@@ -118,10 +118,12 @@ function (@main)(ARGS)
 		if ig.BeginTabBar("IV and RealTime", ig.ImGuiTabBarFlags_NoCloseWithMiddleMouseButton)
 			if ig.BeginTabItem("I-V Sweep")
 				ivtab()
+				ig.EndTabItem()
 			end
-
+			
 			if ig.BeginTabItem("Realtime Monitor")
 				rttab()
+				ig.EndTabItem()
 			end
 			ig.EndTabBar()
 		end
@@ -129,7 +131,6 @@ function (@main)(ARGS)
 		ig.EndGroup()
 		
 		ig.SameLine()
-
 		logs()
 
 		ig.End()
