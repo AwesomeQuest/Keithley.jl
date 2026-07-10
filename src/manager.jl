@@ -7,20 +7,18 @@ function getevents()
 	global selected_keithley_type
 	noerr = "No error"
 
-	@lock gpiblock begin
-		while true
-			if keithley_types[selected_keithley_type] == "MODEL 2400"
-				output = query(KeithleyIO, "STAT:QUE:NEXT?")
-			elseif keithley_types[selected_keithley_type] == "MODEL 2470"
-				output = query(KeithleyIO, "SYST:EVEN:NEXT?")
-			else
-				output = ""
-				@assert false "Unreachable!"
-			end
-			occursin(noerr, output) && break
-			@info output
-			push!(event_list, output)
+	while true
+		output = ""
+		if keithley_types[selected_keithley_type] == "MODEL 2400"
+			@lock gpiblock output = query(KeithleyIO, "STAT:QUE:NEXT?")
+		elseif keithley_types[selected_keithley_type] == "MODEL 2470"
+			@lock gpiblock output = query(KeithleyIO, "SYST:EVEN:NEXT?")
+		else
+			@assert false "Unreachable!"
 		end
+		occursin(noerr, output) && break
+		@info output
+		push!(event_list, output)
 	end
 end
 
@@ -38,6 +36,7 @@ function initialize()
 	elseif keithley_types[selected_keithley_type] == "MODEL 2470"
 		write(KeithleyIO, ":FORM:ASC:PREC 16")
 	end
+	errormonitor(Threads.@spawn getevents())
 end
 
 function monitor(volts_set, maxcurrent)
@@ -48,6 +47,7 @@ function monitor(volts_set, maxcurrent)
 	global rt_cancel_monitor
 	global rt_sample_period
 
+	errormonitor(Threads.@spawn getevents())
 	if keithley_types[selected_keithley_type] == "MODEL 2400"
 		write(KeithleyIO, "SENS:CURR:PROT $(maxcurrent)")
 	elseif keithley_types[selected_keithley_type] == "MODEL 2470"
@@ -105,6 +105,7 @@ function monitor(volts_set, maxcurrent)
 	rt_is_monitoring[] = false
 
 	write(KeithleyIO, "OUTP OFF")
+	errormonitor(Threads.@spawn getevents())
 end
 
 function integrated_2400_sweep(min_volts, max_volts, step_voltage, delay, maxcurrent)
@@ -153,6 +154,7 @@ function sweep(min_volts, max_volts, step_voltage, delay, maxcurrent, dual)
 	global iv_is_sweeping, iv_cancel_sweep
 	global selected_keithley_type
 
+	errormonitor(Threads.@spawn getevents())
 	global  gpiblock
 	@lock gpiblock begin
 		if keithley_types[selected_keithley_type] == "MODEL 2400"
@@ -208,6 +210,7 @@ function sweep(min_volts, max_volts, step_voltage, delay, maxcurrent, dual)
 		@assert false "Unreachable!"
 	end
 	iv_is_sweeping[] = false
+	errormonitor(Threads.@spawn getevents())
 end
 
 function calculate_sweep(min_volts, max_volts, step_voltage, dual)
