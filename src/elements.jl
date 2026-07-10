@@ -1,25 +1,39 @@
-
-
 function menubar()
 	if ig.BeginMenuBar()
 		if ig.BeginMenu("Device Selection")
-			@cstatic instrs = String[] selected_keithley::Cint = 0 begin
-				if ig.Button("Refresh Devices")
+			@cstatic instrs = String[] selected_instrument::Cint = 0 begin
+				if ig.Button("Scan for Devices")
 					global RM
 					RM = ResourceManager()
 					instrs = find_resources(RM)
 				end
-				global selected_keithley_type
-				@c ig.Combo("Keithley", &selected_keithley, instrs)
-				@c ig.Combo("Type", &selected_keithley_type, keithley_types)
+				@c ig.Combo("Keithley", &selected_instrument, instrs)
 				global RM
 				global KeithleyIO
 				if ig.Button("Connect")
-					connect!(RM, KeithleyIO, instrs[selected_keithley+1])
+					KeithleyIO.connected && disconnect!(KeithleyIO)
+					connect!(RM, KeithleyIO, instrs[selected_instrument+1])
+					id = query(KeithleyIO, "*IDN?")
+					selectedtype = findfirst(keithley_types) do t
+						occursin(t, id)
+					end
+					if selectedtype !== nothing
+						global selected_keithley_type
+						selected_keithley_type = selectedtype
+						global is_selected
+						is_selected = true
+						initialize()
+					end
 				end
-				if KeithleyIO.connected
+				global is_selected
+				if KeithleyIO.connected && is_selected
 					ig.SameLine()
+					global gpiblock
+					@lock gpiblock begin
+						id = query(KeithleyIO, "*IDN?")
+					end
 					ig.Text("Success!")
+					ig.Text("Connected to $id")
 				else
 					if !KeithleyIO.connected
 						ig.SameLine()
@@ -59,12 +73,15 @@ function ivtab()
 	ig.SameLine()
 	ig.BeginGroup()
 	flagschecks()
-	simpleimplot(
-		"I-V Sweep",
-		"Voltage [V]", "Current [A]",
-		ig.ImVec2(-sidebarwidth,-1),
-		iv_volts, iv_currs
-	)
+	
+	@lock plotlock begin
+		simpleimplot(
+			"I-V Sweep",
+			"Voltage [V]", "Current [A]",
+			ig.ImVec2(-sidebarwidth,-1),
+			iv_volts, iv_currs
+		)
+	end
 	ig.EndGroup()
 end
 
@@ -101,9 +118,9 @@ function ivinputs()
 end
 
 function sweepinputvals()
-	@cstatic min_volts=Cdouble(-1) max_volts=Cdouble(1) begin # Nested scopes so
-	@cstatic step_voltage=Cdouble(0.1) delay=Cdouble(0) begin # it's more readable
-	@cstatic maxcurrent=Cdouble(0.1) dual=true begin
+	@cstatic min_volts		= Cdouble(-1)  max_volts = Cdouble(1) begin # Nested scopes so
+	@cstatic step_voltage	= Cdouble(0.1) delay	 = Cdouble(0) begin # it's more readable
+	@cstatic maxcurrent		= Cdouble(0.1) dual		 = true begin
 		global WINSCALE
 		ig.PushItemWidth(90WINSCALE)
 		@c ig.InputDouble("Minimum Voltage [V]", &min_volts)
@@ -121,10 +138,10 @@ function sweepinputvals()
 		global iv_cancel_sweep
 		global rt_is_monitoring
 		global WINSCALE
-		if iv_is_sweeping[] && ig.Button("Start Sweep", (250WINSCALE, 30WINSCALE)) && !rt_is_monitoring[]
+		if !iv_is_sweeping[] && ig.Button("Start Sweep", (250WINSCALE, 30WINSCALE)) && !rt_is_monitoring[]
 			ig.OpenPopup("start_sweep_popup")
 		end
-		if !rt_is_monitoring[]
+		if rt_is_monitoring[]
 			if ig.BeginItemTooltip()
 				ig.TextColored((255,0,0,255), "You cannot start a sweep while monitoring")
 				ig.EndTooltip()
@@ -136,18 +153,22 @@ function sweepinputvals()
 			if ig.Button("I'm sure I want to permanently erase data and start a new sweep.")
 				iv_cancel_sweep[] = false
 				errormonitor(
-					Threads.@spawn dummy_sweep(
-						iv_min_volts, iv_max_volts,
-						iv_step_voltage, iv_delay,
-						dual, maxcurrent)
+					Threads.@spawn sweep(
+						min_volts, max_volts,
+						step_voltage, delay,
+						maxcurrent, dual)
 				)
 				ig.CloseCurrentPopup()
 			end
 			ig.EndPopup()
 		end
-	end
-	end
-	end
+		global iv_cancel_sweep
+		if iv_is_sweeping[] && ig.Button("Stop Sweep", (250WINSCALE, 30WINSCALE))
+			iv_cancel_sweep[] = true
+		end
+	end # @static
+	end # @static
+	end # @static
 end
 
 function rttab()
@@ -155,12 +176,16 @@ function rttab()
 	ig.SameLine()
 	ig.BeginGroup()
 	flagschecks()
-	simpleimplot(
-		"Real Time Monitor",
-		"Time [s]", "Current [A]",
-		ig.ImVec2(-sidebarwidth,-1),
-		rt_times, rt_currs
-	)
+	
+	@lock plotlock begin
+		xs::Vector{Float64} = rt_times .|> x->x.ns/1e9
+		simpleimplot(
+			"Real Time Monitor",
+			"Time [s]", "Current [A]",
+			ig.ImVec2(-sidebarwidth,-1),
+			xs, rt_currs
+		)
+	end
 	ig.EndGroup()
 end
 
@@ -220,14 +245,14 @@ function monitorinputvals()
 			global rt_times
 			if !isempty(rt_times) && ig.Button("Resume", (250WINSCALE, 40WINSCALE))
 				@goto start_sweep
-			elseif ig.Button("Start", (250WINSCALE, 40WINSCALE))
+			elseif isempty(rt_times) && ig.Button("Start", (250WINSCALE, 40WINSCALE))
 				@goto start_sweep
 			end
 			@goto dont_sweep
 			@label start_sweep
 			if !iv_is_sweeping[]
 				rt_cancel_monitor[] = false
-				errormonitor(Threads.@spawn dummy_monitor(set_volts, maxcurrent))
+				errormonitor(Threads.@spawn monitor(set_volts, maxcurrent))
 			end
 			@label dont_sweep
 		else
@@ -260,6 +285,8 @@ function flagschecks()
 				@c ig.CheckboxFlags("Range Fit", &xflags, ImPlot.ImPlotAxisFlags_RangeFit)
 			elseif yflags & ImPlot.ImPlotAxisFlags_AutoFit != 0
 				@c ig.CheckboxFlags("Range Fit", &yflags, ImPlot.ImPlotAxisFlags_RangeFit)
+			else
+				@assert false "Unreachable!"
 			end
 		end
 	end
@@ -273,9 +300,7 @@ function simpleimplot(title, xaxis, yaxis, plot_size, xs, ys)
 		global yflags
 		ImPlot.SetupAxes(xaxis, yaxis, xflags, yflags)
 		if !isempty(xs)
-			@lock plotlock begin
-				ImPlot.PlotLine("data", xs, ys)
-			end
+			ImPlot.PlotLine("data", xs, ys)
 		end
 		ImPlot.EndPlot()
 	end
@@ -337,7 +362,8 @@ function logs()
 		@c ig.Checkbox("Warn", &showwarn)
 		ig.SameLine()
 		@c ig.Checkbox("Error", &showerror)
-		filter!(lst) do ((i, (msg, type, time)))
+		filter!(lst) do ((i, raw))
+			msg, type, time = split(raw, ';')
 			@match type begin
 				"1" => showinfo
 				"2" => showwarn
@@ -357,31 +383,25 @@ function event_table(list, master)
 	tableflags = ig.ImGuiTableFlags_Borders |
 		ig.ImGuiTableFlags_RowBg |
 		ig.ImGuiTableFlags_SizingFixedFit
-	if ig.BeginTable("Event List", 3, tableflags, (sidebarwidth, -1f0))
+	if ig.BeginTable("Event List", 2, tableflags, (sidebarwidth, -1f0))
 		ig.TableSetupColumn("msg", ig.ImGuiTableColumnFlags_WidthStretch)
-		ig.TableSetupColumn("time", ig.ImGuiTableColumnFlags_WidthStretch)
 		ig.TableSetupColumn("delete", ig.ImGuiTableColumnFlags_WidthFixed, 30f0)
-		for (i,(msg, _, t)) in list
+		for (i,msg) in list
 			ig.TableNextRow()
 			ig.TableSetColumnIndex(0)
 			colw = ig.GetColumnWidth(0)
 			ig.PushTextWrapPos(ig.GetCursorPosX() + colw)
 			ig.Text(msg)
 			ig.PopTextWrapPos()
-			
-			ig.TableSetColumnIndex(1)
-			colw = ig.GetColumnWidth(0)
-			ig.PushTextWrapPos(ig.GetCursorPosX() + colw)
-			ig.Text(t)
-			ig.PopTextWrapPos()
 
-			ig.TableSetColumnIndex(2)
 			global fontawesome
+			ig.TableSetColumnIndex(1)
 			ig.PushFont(fontawesome, 12)
 			if ig.Button("##listbtn$i")
 				popat!(master, i)
 			end
 			ig.PopFont()
+			
 		end
 		ig.EndTable()
 	end

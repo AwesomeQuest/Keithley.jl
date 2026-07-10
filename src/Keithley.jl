@@ -6,8 +6,8 @@ import CImGui as ig, ModernGL, GLFW
 import CImGui.CSyntax: @c, @cstatic
 import ImPlot
 
-global plotlock = ReentrantLock()
-global gpiblock = ReentrantLock()
+global plotlock::ReentrantLock = ReentrantLock()
+global gpiblock::ReentrantLock = ReentrantLock()
 
 include("BetterSleep.jl")
 using .BetterSleep
@@ -24,13 +24,17 @@ global KeithleyIO::GenericInstrument = GenericInstrument()
 
 
 # Global System State
-const keithley_types = [
-	"2400",
-	"2470",
-]
-global selected_keithley_type::Cint = 0
+const keithley_types = (
+	"MODEL 2400",
+	"MODEL 2470",
+)
+global selected_keithley_type::Int = 0
 
-global initialized::Bool = false
+global is_selected::Bool = false
+function nokeithleyselected()
+	@error "No Keithley Selected. Use the device selection menu to select a keithley."
+	return false
+end
 
 global iv_is_sweeping::Ref{Bool}	= Ref(false)
 global iv_cancel_sweep::Ref{Bool}	= Ref(false)
@@ -38,7 +42,9 @@ global iv_cancel_sweep::Ref{Bool}	= Ref(false)
 global rt_is_monitoring::Ref{Bool}	= Ref(false)
 global rt_cancel_monitor::Ref{Bool}	= Ref(false)
 
-global event_list::Vector{Tuple{String, String, String}} = []
+global rt_sample_period::Nano = millis(100)
+
+global event_list::Vector{String} = []
 
 # Can be :datetime, :seconds, or :nanoseconds
 global timestamp_mode::Symbol = :seconds
@@ -58,6 +64,8 @@ global yflags = ImPlot.ImPlotAxisFlags_None | ImPlot.ImPlotAxisFlags_AutoFit
 
 global WINSCALE::Float32 = 1.0
 global sidebarwidth = 200WINSCALE
+
+global fontawesome::Ptr{ig.lib.ImFont} = C_NULL
 
 include("elements.jl")
 
